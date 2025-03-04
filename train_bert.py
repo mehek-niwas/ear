@@ -92,10 +92,14 @@ class LMForSequenceClassification(pl.LightningModule):
                 loss = loss_fct(logits.view(-1, self.model.num_labels), labels.view(-1))
 
             info_vectors = attentions
+            
             negative_entropy = compute_negative_entropy(
                 info_vectors, batch["attention_mask"]
             )
-            reg_loss = self.hparams.reg_strength * negative_entropy
+            
+            self.negative_entropy_headwise = compute_headwise_negative_entropy(info_vectors, batch["attention_mask"]) 
+            # can call after training? to get each headwise entropy --> should be equivalent to number of heads
+            reg_loss = self.hparams.reg_strength * negative_entropy # NEW TERM IN LOSS FUNCTION ---> WILL BE MAXIMIZED?
             return loss, logits, negative_entropy, reg_loss
 
         else:
@@ -112,7 +116,7 @@ class LMForSequenceClassification(pl.LightningModule):
             loss, logits, negative_entropy, reg_loss = self.forward_pass(batch)
             self.log("train_class_loss", loss, prog_bar=True)
             self.log("train_reg_loss", reg_loss, prog_bar=True)
-            self.log("entropy", -negative_entropy)
+            self.log("entropy", -negative_entropy) 
             loss += reg_loss
         else:
             loss, logits = self.forward_pass(batch)
@@ -259,9 +263,11 @@ def compute_negative_entropy(
     """
     inputs = torch.stack(inputs)  #  LayersBatchHeadsSeqlenSeqlen
     assert inputs.ndim == 5, "Here we expect 5 dimensions in the form LBHSS"
+    # inputs is a 5D tensor with dimensions (Layers, Batch, Heads, SeqLen, SeqLen)
 
     #  average over attention heads
-    pool_heads = inputs.mean(2)
+    pool_heads = inputs.mean(2) # (0) Layers, (1) Batch, (2) Heads, (3) SeqLen, (4) SeqLen
+    
 
     batch_size = pool_heads.shape[1]
     samples_entropy = list()
@@ -289,6 +295,51 @@ def compute_negative_entropy(
         return final_entropy, neg_entropies
     else:
         return final_entropy
+    
+
+def compute_headwise_negative_entropy(
+    inputs: tuple, attention_mask: torch.Tensor, return_values=False
+):
+    """Compute the negative entropy for each individual attention head.
+
+    Args:
+        - inputs: tuple. Tuple of length num_layers. Each item should be in the form: BHSS
+        - attention_mask: Tensor with dim: BS
+    """
+    inputs = torch.stack(inputs)  # (Layers, Batch, Heads, SeqLen, SeqLen)
+    assert inputs.ndim == 5, "Expected 5D tensor in the form (L, B, H, S, S)"
+    # (0) Layers (1) Batch (2) Heads (3) SeqLen (4) SeqLen
+
+    batch_size = inputs.shape[1]
+    headwise_entropies = list()  # Store entropy per head
+    all_neg_entropies = list() 
+
+    for b in range(batch_size):
+        mask = attention_mask[b]
+        
+        # Extract non-padded tokens for each head separately
+        sample = inputs[:, b, :, mask.bool(), :]  # (L, H, valid_S, S)
+        sample = sample[:, :, :, mask.bool()]  # (L, H, valid_S, valid_S)
+
+        # Compute negative entropy for each attention head separately
+        neg_entropy = (sample.softmax(-1) * sample.log_softmax(-1)).sum(-1)  # (L, H, valid_S)
+        
+        if return_values:
+            all_neg_entropies.append(neg_entropy.detach())
+
+        # Compute mean entropy across sequence tokens
+        mean_entropy = neg_entropy.mean(-1)  # (L, H)
+
+        # Sum across layers, keeping head-specific values
+        headwise_entropies.append(mean_entropy.sum(0))  # (H,)
+
+    # Average over the batch
+    final_entropy_per_head = torch.stack(headwise_entropies).mean(0)  # (H,)
+
+    if return_values:
+        return final_entropy_per_head, all_neg_entropies
+    else:
+        return final_entropy_per_head
 
 
 SUPPORTED_MODELS = [
