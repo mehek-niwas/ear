@@ -2,13 +2,10 @@ import os
 import glob
 import click
 import logging
-
 import comet_ml
-
 from dataset import get_dataset_by_name, TokenizerDataModule
 import IPython
 import pdb
-
 import numpy as np
 import torch
 from torch import nn
@@ -24,8 +21,6 @@ from transformers import (
 )
 import pandas as pd
 
-# from aim.pytorch_lightning import AimLogger
-
 logging.basicConfig(
     format="%(levelname)s:%(asctime)s:%(module)s:%(message)s", level=logging.INFO
 )
@@ -39,8 +34,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"  #  set to false is processes stu
 
 class LMForSequenceClassification(pl.LightningModule):
     def __init__(
-        self,
-        src_model: str,
+        self, src_model: str, 
         learning_rate: float,
         regularization: str = None,
         reg_strength: float = 0.01,
@@ -573,13 +567,6 @@ def main(
         )
         best_PL.get_backbone().save_pretrained(model_dir)
         tokenizer.save_pretrained(model_dir)
-
-    #  TODO resume_from_checkpoint logic
-    #  logger.info("Simulation completed. Removing last.ckpt...")
-    #  if early_stop_epochs > 0:
-    #      if os.path.exists(os.path.join(model_dir, "last.ckpt")):
-    #          os.remove(os.path.join(model_dir, "last.ckpt"))
-    #          logger.info("Last checkpoint removed.")
 
 
 if __name__ == "__main__":

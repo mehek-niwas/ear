@@ -25,9 +25,7 @@ from collections import namedtuple
 import pdb
 
 
-logging.basicConfig(
-    format="%(levelname)s:%(asctime)s:%(module)s:%(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(levelname)s:%(asctime)s:%(module)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -356,13 +354,7 @@ def show_entropy(
                         f"{name}, p(1|x)={y_scores[i]:.3f}, H={final_entropies[i]:.3f}",
                         fontsize=titlesize,
                     )
-
-                    #  print(len(tokens), len(axes[i].get_xticklabels()))
-                    #  print(entropies.shape)
-                    #  axes[i].set_xticks(np.arange(heatmap_list[i].shape[-1]))
-                    # axes[i].set_xticklabels(tokens, rotation=90)
-                    # axes[i].set_title(f"{name}, p(1|x)={y_scores[i]:.3f}, e={final_entropies[i]:.3f}")
-                    # axes[i].set_yticklabels([])
+                    
             return fig
 
     if prompt:

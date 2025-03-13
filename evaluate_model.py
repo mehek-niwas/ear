@@ -17,18 +17,14 @@ from joblib import Parallel, delayed
 import torch
 import glob
 
-logging.basicConfig(
-    format="%(levelname)s:%(asctime)s:%(module)s:%(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(levelname)s:%(asctime)s:%(module)s:%(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 @click.command()
 @click.option("--dataset", type=click.Choice(AVAIL_DATASETS), required=True)
 @click.option("--model_path", type=str)
-@click.option(
-    "--subgroups_path", type=str, help="Path to the subgroups file.", default=None
-)
+@click.option("--subgroups_path", type=str, help="Path to the subgroups file.", default=None)
 @click.option(
     "--n_jobs",
     type=int,

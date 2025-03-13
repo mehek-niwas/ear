@@ -2,7 +2,7 @@
 transformers
 datasets
 accelerate
-pytorch-lightning
+pytorch-lightning=1.2
 ipython
 comet_ml
 scikit-learn
