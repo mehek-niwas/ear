@@ -15,7 +15,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
-import pytorch_lightning.metrics.functional as plf
+import torchmetrics.functional as plf
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -47,7 +47,7 @@ class LMForSequenceClassification(pl.LightningModule):
         weight_decay: float = 0.0,
         warmup_train_perc: float = None,
         train_steps_count: int = None,
-        class_weights: torch.Tensor = None
+        class_weights: torch.Tensor = None,
     ):
         super().__init__()
 
@@ -64,7 +64,7 @@ class LMForSequenceClassification(pl.LightningModule):
             self.model = AutoModelForSequenceClassification.from_pretrained(src_model)
 
         self.save_hyperparameters()
-        
+
         if class_weights is not None:
             self.register_buffer("class_weights", class_weights)
 
@@ -92,14 +92,18 @@ class LMForSequenceClassification(pl.LightningModule):
                 loss = loss_fct(logits.view(-1, self.model.num_labels), labels.view(-1))
 
             info_vectors = attentions
-            
+
             negative_entropy = compute_negative_entropy(
                 info_vectors, batch["attention_mask"]
             )
-            
-            self.negative_entropy_headwise = compute_headwise_negative_entropy(info_vectors, batch["attention_mask"]) 
+
+            self.negative_entropy_headwise = compute_headwise_negative_entropy(
+                info_vectors, batch["attention_mask"]
+            )
             # can call after training? to get each headwise entropy --> should be equivalent to number of heads
-            reg_loss = self.hparams.reg_strength * negative_entropy # NEW TERM IN LOSS FUNCTION ---> WILL BE MAXIMIZED?
+            reg_loss = (
+                self.hparams.reg_strength * negative_entropy
+            )  # NEW TERM IN LOSS FUNCTION ---> WILL BE MAXIMIZED?
             return loss, logits, negative_entropy, reg_loss
 
         else:
@@ -116,7 +120,7 @@ class LMForSequenceClassification(pl.LightningModule):
             loss, logits, negative_entropy, reg_loss = self.forward_pass(batch)
             self.log("train_class_loss", loss, prog_bar=True)
             self.log("train_reg_loss", reg_loss, prog_bar=True)
-            self.log("entropy", -negative_entropy) 
+            self.log("entropy", -negative_entropy)
             loss += reg_loss
         else:
             loss, logits = self.forward_pass(batch)
@@ -266,8 +270,9 @@ def compute_negative_entropy(
     # inputs is a 5D tensor with dimensions (Layers, Batch, Heads, SeqLen, SeqLen)
 
     #  average over attention heads
-    pool_heads = inputs.mean(2) # (0) Layers, (1) Batch, (2) Heads, (3) SeqLen, (4) SeqLen
-    
+    pool_heads = inputs.mean(
+        2
+    )  # (0) Layers, (1) Batch, (2) Heads, (3) SeqLen, (4) SeqLen
 
     batch_size = pool_heads.shape[1]
     samples_entropy = list()
@@ -295,7 +300,7 @@ def compute_negative_entropy(
         return final_entropy, neg_entropies
     else:
         return final_entropy
-    
+
 
 def compute_headwise_negative_entropy(
     inputs: tuple, attention_mask: torch.Tensor, return_values=False
@@ -312,18 +317,20 @@ def compute_headwise_negative_entropy(
 
     batch_size = inputs.shape[1]
     headwise_entropies = list()  # Store entropy per head
-    all_neg_entropies = list() 
+    all_neg_entropies = list()
 
     for b in range(batch_size):
         mask = attention_mask[b]
-        
+
         # Extract non-padded tokens for each head separately
         sample = inputs[:, b, :, mask.bool(), :]  # (L, H, valid_S, S)
         sample = sample[:, :, :, mask.bool()]  # (L, H, valid_S, valid_S)
 
         # Compute negative entropy for each attention head separately
-        neg_entropy = (sample.softmax(-1) * sample.log_softmax(-1)).sum(-1)  # (L, H, valid_S)
-        
+        neg_entropy = (sample.softmax(-1) * sample.log_softmax(-1)).sum(
+            -1
+        )  # (L, H, valid_S)
+
         if return_values:
             all_neg_entropies.append(neg_entropy.detach())
 
@@ -404,7 +411,7 @@ def main(
     save_transformers_model,
     ckpt_save_top_k,
     resume_from_checkpoint,
-    balanced_loss
+    balanced_loss,
 ):
     hparams = locals()
     pl.seed_everything(seed)
@@ -447,31 +454,6 @@ def main(
 
     tokenizer = AutoTokenizer.from_pretrained(src_model)
 
-
-    # logging.info("Tokenizing sets...")
-    # tok_train = TokenizedDataset(train, tokenizer, max_seq_length, load_tokenized=True)
-    # tok_val = TokenizedDataset(val, tokenizer, max_seq_length, load_tokenized=True)
-    # tok_test = TokenizedDataset(test, tokenizer, max_seq_length, load_tokenized=True)
-    # logging.info("Tokenization completed")
-
-    # logging.info(f"TRAIN: {len(tok_train)}")
-    # logging.info(f"VAL: {len(tok_val)}")
-    # logging.info(f"TEST: {len(tok_test)}")
-
-    # train_loader = DataLoader(
-    #     tok_train,
-    #     batch_size=batch_size,
-    #     num_workers=num_workers,
-    #     pin_memory=True,
-    #     shuffle=True,
-    # )
-    # val_loader = DataLoader(
-    #     tok_val, batch_size=batch_size, num_workers=num_workers, pin_memory=True
-    # )
-    # test_loader = DataLoader(
-    #     tok_test, batch_size=batch_size, num_workers=num_workers, pin_memory=True
-    # )
-
     dataset_module = TokenizerDataModule(
         dataset_name=training_dataset,
         tokenizer=tokenizer,
@@ -505,7 +487,7 @@ def main(
         logger.info(f"Class weights: {class_weights}")
     else:
         class_weights = None
-        
+
     #  Instantiate a LM and create the experiment accordingly
     model = LMForSequenceClassification(
         src_model,
@@ -515,7 +497,7 @@ def main(
         weight_decay=weight_decay,
         warmup_train_perc=warmup_train_perc,
         train_steps_count=train_steps_count,
-        class_weights=class_weights
+        class_weights=class_weights,
     )
 
     # set some training stuff (loggers, callback)
@@ -566,7 +548,7 @@ def main(
         precision=precision,
         resume_from_checkpoint=resume_from_checkpoint,
         log_every_n_steps=log_every_n_steps,
-        gradient_clip_val=1
+        gradient_clip_val=1,
         # plugins=pl.plugins.DDPPlugin(find_unused_parameters=True),
     )
 
