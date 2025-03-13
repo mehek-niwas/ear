@@ -7,12 +7,13 @@ def compute_negative_entropy(
     inputs: tuple, attention_mask: torch.torch, return_values: bool = False
 ):
     """Compute the negative entropy across layers of a network for given inputs.
-
     Args:
         - input: tuple. Tuple of length num_layers. Each item should be in the form: BHSS
         - attention_mask. Tensor with dim: BS
     """
+
     inputs = torch.stack(inputs)  #  LayersBatchHeadsSeqlenSeqlen
+
     assert inputs.ndim == 5, "Here we expect 5 dimensions in the form LBHSS"
 
     #  average over attention heads
@@ -42,23 +43,25 @@ def compute_negative_entropy(
     final_entropy = torch.stack(samples_entropy).mean()
     if return_values:
         return final_entropy, neg_entropies
+        # entropies.shape = (layers, nonpadded token)
     else:
         return final_entropy
 
 
 EARClassificationOutput = namedtuple(
-    "EARClassificationOutput",
-    ["model_output", "negative_entropy", "reg_loss", "loss"]
+    "EARClassificationOutput", ["model_output", "negative_entropy", "reg_loss", "loss"]
 )
 
 
-
 class EARModelForSequenceClassification(torch.nn.Module):
-
-    def __init__(self, model_name_or_path, ear_reg_strength: float = 0.01, model_kwargs={}):
+    def __init__(
+        self, model_name_or_path, ear_reg_strength: float = 0.01, model_kwargs={}
+    ):
         super().__init__()
 
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name_or_path, **model_kwargs)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path, **model_kwargs
+        )
         self.ear_reg_strength = ear_reg_strength
 
     def forward(self, **model_kwargs):
@@ -74,8 +77,8 @@ class EARModelForSequenceClassification(torch.nn.Module):
             model_output=output,
             negative_entropy=negative_entropy,
             reg_loss=reg_loss,
-            loss=loss
-        ) 
+            loss=loss,
+        )
 
     def save_pretrained(self, *args, **kwargs):
         self.model.save_pretrained(*args, **kwargs)
