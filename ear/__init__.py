@@ -48,6 +48,77 @@ def compute_negative_entropy(
         return final_entropy
 
 
+def compute_mehek_negative_entropy(
+    inputs: tuple,
+    attention_mask: torch.Tensor,
+    return_values: bool = False,
+    return_heads: bool = False,
+):
+    """Compute the negative entropy across layers and attention heads for given inputs.
+
+    Args:
+        - inputs: tuple. Tuple of length num_layers. Each item should be in the form: BHSS
+        - attention_mask: Tensor with dim: BS
+        - return_values: bool. If True, return per-sample entropies for further inspection.
+        - return_heads: bool. If True, returns entropy per head; otherwise averages over heads.
+
+    Returns:
+        - final_entropy: Average negative entropy across the batch.
+        - neg_entropies (optional): List of tensors (one per sample) with shape:
+            - (Layers, Heads, Tokens) if return_heads=True
+            - (Layers, Tokens) if return_heads=False
+    """
+
+    inputs = torch.stack(inputs)  # Layers x Batch x Heads x SeqLen x SeqLen
+    assert inputs.ndim == 5, (
+        "Expected 5 dimensions in the form (Layers, Batch, Heads, SeqLen, SeqLen)"
+    )
+
+    batch_size = inputs.shape[1]
+    samples_entropy = []
+    neg_entropies = []
+
+    for b in range(batch_size):
+        # Get inputs from non-padded tokens of the current sample
+        mask = attention_mask[b]
+        sample = inputs[
+            :, b, :, mask.bool(), :
+        ]  # Layers x Heads x NonPaddedTokens x SeqLen
+        sample = sample[
+            :, :, :, mask.bool()
+        ]  # Layers x Heads x NonPaddedTokens x NonPaddedTokens
+
+        # Calculate negative entropy per head for each token
+        neg_entropy = (sample.softmax(-1) * sample.log_softmax(-1)).sum(
+            -1
+        )  # Layers x Heads x NonPaddedTokens
+
+        # Average over heads if return_heads is False
+        if not return_heads:
+            neg_entropy = neg_entropy.mean(1)  # Layers x NonPaddedTokens
+
+        if return_values:
+            neg_entropies.append(neg_entropy.detach())
+
+        # Average over tokens and sum across layers to get batch-level entropy
+        mean_entropy = neg_entropy.mean(
+            -1
+        )  # Layers (if not return_heads) or Layers x Heads
+        samples_entropy.append(
+            mean_entropy.sum(0)
+        )  # Scalar (if not return_heads) or Heads
+
+    # Average across the batch
+    final_entropy = torch.stack(
+        samples_entropy
+    ).mean()  # Scalar (if not return_heads) or Heads
+
+    if return_values:
+        return final_entropy, neg_entropies
+    else:
+        return final_entropy
+
+
 EARClassificationOutput = namedtuple(
     "EARClassificationOutput", ["model_output", "negative_entropy", "reg_loss", "loss"]
 )
